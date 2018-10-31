@@ -47,22 +47,23 @@ VALID_COMMANDS = {
 
 # FTP Server Response Codes directly referenced in this program.
 FTP_STATUS_CODES = {
-    "SUCCESSFUL_RETR":     "150",
-    "SUCCESSFUL_STOR":     "150",
-    "SUCCESSFUL_PORT":     "200",
-    "SUCCESSFUL_HELP":     "214",
-    "SUCCESSFUL_SYST":     "215",
-    "ACCEPT_QUIT":         "221",
-    "SUCCESSFUL_TRANSFER": "226",
-    "SUCCESSFUL_PASV":     "227",
-    "SUCCESSFUL_LOGIN":    "230",
-    "SUCCESSFUL_LOGOUT":   "231",
-    "SUCCESSFUL_CWD":      "250",
-    "SUCCESSFUL_PWD":      "257",
-    "VALID_USERNAME":      "331",
-    "INVALID_COMMAND":     "502",
-    "INVALID_LOGIN":       "530",
-    "UNSUCCESSFUL_CWD":    "550"
+    "SUCCESSFUL_RETR":      "150",
+    "SUCCESSFUL_STOR":      "150",
+    "INBOUND_DATA":         "150",
+    "SUCCESSFUL_PORT":      "200",
+    "SUCCESSFUL_HELP":      "214",
+    "SUCCESSFUL_SYST":      "215",
+    "ACCEPT_QUIT":          "221",
+    "SUCCESSFUL_TRANSFER":  "226",
+    "SUCCESSFUL_PASV":      "227",
+    "SUCCESSFUL_LOGIN":     "230",
+    "SUCCESSFUL_LOGOUT":    "231",
+    "SUCCESSFUL_CWD":       "250",
+    "SUCCESSFUL_PWD":       "257",
+    "VALID_USERNAME":       "331",
+    "INVALID_COMMAND":      "502",
+    "INVALID_LOGIN":        "530",
+    "UNSUCCESSFUL_CWD":     "550"
 
 }
 
@@ -209,6 +210,7 @@ class FTP:
         print_debug(resp)
         print_debug(data)
         self.logger.log("Sent: %s" % data)
+        self.logger.log("Received: %s" % resp)
         return resp
 
     def port_connection(self, sock, port_ip, port_port):
@@ -305,7 +307,7 @@ class FTP:
         else:
             print_debug("User %s does NOT exist" % username)
             resp = FTP_STATUS_CODES["INVALID_LOGIN"]
-        return resp
+        return resp + "\r\n"
 
     def pass_cmd(self, password):
         """Send PASS command to server."""
@@ -314,7 +316,7 @@ class FTP:
             resp = FTP_STATUS_CODES["SUCCESSFUL_LOGIN"]
         else:
             resp = FTP_STATUS_CODES["INVALID_LOGIN"]
-        return resp
+        return resp + "\r\n"
 
     def cwd_cmd(self, new_dir):
         """Send CWD command to server."""
@@ -324,13 +326,13 @@ class FTP:
             resp = "%s Changed to %s" % (FTP_STATUS_CODES["SUCCESSFUL_CWD"], os.getcwd())
         else:
             resp = FTP_STATUS_CODES["UNSUCCESSFUL_CWD"]
-        return resp
+        return resp + "\r\n"
 
     def pwd_cmd(self):
         """Send PWD command to server."""
         print_debug("Executing PWD")
         resp = "%s %s" % (FTP_STATUS_CODES["SUCCESSFUL_PWD"], os.getcwd())
-        return resp
+        return resp + "\r\n"
 
     def cdup_cmd(self):
         """Send CDUP command to server."""
@@ -340,13 +342,13 @@ class FTP:
             resp = "%s Changed to %s" % (FTP_STATUS_CODES["SUCCESSFUL_CWD"], os.getcwd())
         else:
             resp = FTP_STATUS_CODES["UNSUCCESSFUL_CWD"]
-        return resp
+        return resp + "\r\n"
 
     def quit_cmd(self):
         """Send QUIT command to server."""
         print_debug("Executing QUIT")
         resp = FTP_STATUS_CODES["ACCEPT_QUIT"]
-        return resp
+        return resp + "\r\n"
 
     def port_cmd(self, msg):
         """Send PORT command to server."""
@@ -357,7 +359,7 @@ class FTP:
         client_port_ip, client_port_port = self.parse_port_resp(msg)
         self.port_connection(self.data_sock, client_port_ip, client_port_port)
         resp = "%s" % FTP_STATUS_CODES["SUCCESSFUL_PORT"]
-        return resp
+        return resp + "\r\n"
 
     def pasv_cmd(self):
         """Send PASV command to server."""
@@ -370,7 +372,7 @@ class FTP:
         pasv_params, host_ip, host_port = self.parse_pasv_req(self.data_sock)
         print_debug("PARAMS: " + pasv_params)
         resp = "%s (%s)" % (FTP_STATUS_CODES["SUCCESSFUL_PASV"], pasv_params)
-        return resp
+        return resp + "\r\n"
 
     def epsv_cmd(self, proto="1"):
         """Send EPSV command to server."""
@@ -473,7 +475,7 @@ class FTP:
         """Send SYST command to server."""
         print_debug("Executing SYST")
         resp = "%s %s" % (FTP_STATUS_CODES["SUCCESSFUL_SYST"], SERVER_INFO)
-        return resp
+        return resp + "\r\n"
 
     def help_cmd(self, cmd=None):
         """Send HELP command to server."""
@@ -485,17 +487,21 @@ class FTP:
             for key in VALID_COMMANDS:
                 help_msg += key + " "
         resp = "%s %s" % (FTP_STATUS_CODES["SUCCESSFUL_HELP"], help_msg)
-        return resp
+        return resp + "\r\n"
 
     def list_cmd(self, path=None):
         """Send LIST command to server."""
         print_debug("Executing LIST")
         if path:
             # List everything in specified path.
-            data = subprocess.check_output(['ls', '-l', path])
+            data = subprocess.check_output(['ls', '-l', path]).replace("\n", "\r\n")
         else:
             # List everything in current path.
-            data = subprocess.check_output(['ls', '-l'])
+            data = subprocess.check_output(['ls', '-l']).replace("\n", "\r\n")
+        init_data = FTP_STATUS_CODES["INBOUND_DATA"] + "\r\n"
+        init_resp = self.s.send(init_data)
+        self.logger.log("Sent: %s" % init_data)
+        self.logger.log("Received: %s" % init_resp)
         if self.is_port:
             sock = new_socket()
             data_sent = self.send_to_data_channel(sock, data)
@@ -506,7 +512,7 @@ class FTP:
             self.send_to_data_channel(conn, data)
             self.close_socket(conn)
         resp = FTP_STATUS_CODES["SUCCESSFUL_TRANSFER"]
-        return resp
+        return resp + "\r\n"
 
     def close_socket(self, sock):
         """Close socket passed as arg."""
