@@ -374,26 +374,21 @@ class FTP:
         resp = "%s (%s)" % (FTP_STATUS_CODES["SUCCESSFUL_PASV"], pasv_params)
         return resp + "\r\n"
 
-    def epsv_cmd(self, proto="1"):
-        """Send EPSV command to server."""
-        print_debug("Executing EPSV")
-        net_prt = proto
-        command = "EPSV %s\r\n" % net_prt
-        msg_rec = self.send_and_log(self.s, command)
-        print_debug(msg_rec)
-        # EPSV creates a new connection from client to server.
-        sock = new_socket()
-        # Get client port from Command Channel socket.
-        epsv_port = self.parse_epsv_resp(msg_rec)
-        # Get client ip from Command Channel socket.
-        epsv_ip = self.s.getpeername()[0]
-        # Create passive connection using acquired ip and port.
-        self.pasv_connection(sock, epsv_ip, epsv_port)
-        return msg_rec, sock
-
-    def eprt_cmd(self, proto="1"):
+    def eprt_cmd(self, msg):
         """Send EPRT command to server."""
         print_debug("Executing EPRT")
+        # EPRT creates a new connection from client to server.
+        sock = new_socket()
+        # Get client port from Command Channel socket.
+        eprt_port = self.parse_eprt_resp(msg)
+        # Get client ip from Command Channel socket.
+        eprt_ip = self.s.getpeername()[0]
+        # Create passive connection using acquired ip and port.
+        return self.port_cmd(sock, epsv_ip, epsv_port)
+
+    def epsv_cmd(self):
+        """Send EPSV command to server."""
+        print_debug("Executing EPSV")
         sock = new_socket()
         # Create port connection using extended info.
         self.port_connection(sock)
@@ -503,9 +498,10 @@ class FTP:
         self.logger.log("Sent: %s" % init_data)
         self.logger.log("Received: %s" % init_resp)
         if self.is_port:
-            sock = new_socket()
-            data_sent = self.send_to_data_channel(sock, data)
-            self.close_socket(sock)
+            #sock = new_socket()
+            #self.port_connection(sock, self.client_port_ip, self.client_port)
+            data_sent = self.send_to_data_channel(self.data_sock, data)
+            self.close_socket(self.data_sock)
         else:
             conn, sockaddr = self.data_sock.accept()
             # Have server send data across data channel for client.
@@ -583,11 +579,21 @@ def new_socket():
 def do_port(cmd_rec, client_request, ftp):
     # IP and Port corresponding to client's accepting data channel.
     msg = client_request.split(" ")[1]
+    print_debug(client_request)
     return ftp.port_cmd(msg)
 
 
 def do_pasv(cmd_rec, client_request, ftp):
     return ftp.pasv_cmd()
+
+
+def do_eprt(cmd_rec, client_request, ftp):
+    # IP and Port corresponding to client's accepting data channel.
+    return ftp.eprt_cmd(client_request)
+
+
+def do_epsv(cmd_rec, client_request, ftp):
+    return ftp.epsv_cmd()
 
 
 def do_download(cmd_rec, client_request, ftp):
@@ -722,7 +728,7 @@ def do_help(cmd_rec, client_request, ftp):
 def do_quit(cmd_rec, client_request, ftp):
     """Call the appropriate FTP command to disconnect from server."""
     try:
-        ftp.quit_cmd()
+        return ftp.quit_cmd()
     except Exception as e:
         print("An error has occurred: " + str(e))
 
