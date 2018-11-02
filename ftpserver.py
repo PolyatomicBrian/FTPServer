@@ -430,39 +430,27 @@ class FTP:
         resp = FTP_STATUS_CODES["SUCCESSFUL_TRANSFER"]
         return resp + "\r\n"
 
-    def stor_cmd(self, sock, local_file, remote_path, transfer_type):
+    def stor_cmd(self, path):
         """Send STOR command to server."""
         print_debug("Executing STOR")
-        command = "STOR %s\r\n" % remote_path
-        msg_rec = self.send_and_log(self.s, command)
-        print_debug(msg_rec)
-        # Ensure we got a success message from the FTP server.
-        if get_ftp_server_code(msg_rec) == FTP_STATUS_CODES["SUCCESSFUL_STOR"]:
-            # Open file to upload and read it into variable "data"
-            with open(local_file, "rb") as f:
-                data = f.read()
-            # Are we doing PORT or EPRT?
-            if transfer_type == "1" or transfer_type == "3":
-                # Have client accept data from server.
-                conn, sockaddr = sock.accept()
-                # Have client get data from server.
-                data_rec = self.send_to_data_channel(conn, data)
-                self.close_socket(conn)
-            # Are we doing PASV or EPSV?
-            else:
-                # Have client get data from server.
-                data_rec = self.send_to_data_channel(sock, data)
-                self.close_socket(sock)
-            # Get Transfer success / failed message.
-            msg_cmd_rec = self.s.recv(BUFF_SIZE)
-            print_debug("Transfer Status: " + str(msg_cmd_rec))
-            if get_ftp_server_code(msg_cmd_rec) == FTP_STATUS_CODES["SUCCESSFUL_TRANSFER"]:
-                print("Upload successful.\n")
-            else:
-                print("Something went wrong when uploading. Try again.")
-            return msg_rec, data_rec
+        # Inform client on Command Channel that data is coming on Data Channel.
+        init_data = FTP_STATUS_CODES["INBOUND_DATA"] + "\r\n"
+        init_resp = self.s.send(init_data)
+        self.logger.log("Sent to %s:%s: %r" % (self.client_ip, self.client_port, repr(init_data)))
+        self.logger.log("Received from %s:%s: %r" % (self.client_ip, self.client_port, repr(init_resp)))
+        # Are we doing PORT or EPRT?
+        if self.is_port:
+            data_get = self.get_from_data_channel(self.data_sock)
+            self.close_socket(self.data_sock)
+        # Are we doing PASV or EPSV?
         else:
-            return "File not found or inaccessible.", None
+            conn, sockaddr = self.data_sock.accept()
+            # Have server send data across data channel for client.
+            data_get = self.get_from_data_channel(conn)
+            self.close_socket(conn)
+        write_to_local(path, data_get)
+        resp = FTP_STATUS_CODES["SUCCESSFUL_TRANSFER"]
+        return resp + "\r\n"
 
     def syst_cmd(self):
         """Send SYST command to server."""
@@ -611,24 +599,6 @@ def write_to_local(path, data_rec):
     f.close()
 
 
-def get_transfer_output_and_socket(ftp):
-    """Gets transfer type from user, calls appropriate FTP command."""
-    try:
-        transfer_type = transfer_menu()
-        if transfer_type == "1":
-            output, sock = ftp.port_cmd()
-        elif transfer_type == "2":
-            output, sock = ftp.pasv_cmd()
-        elif transfer_type == "3":
-            output, sock = ftp.eprt_cmd("1") # Only worry about IPv4
-        elif transfer_type == "4":
-            output, sock = ftp.epsv_cmd("1") # Only worry about IPv4
-    except Exception as e:
-        print("An error has occurred: " + str(e) + "\nPlease try again.")
-        return main_menu(ftp)
-    return output, sock, transfer_type
-
-
 def do_user(cmd_rec, client_request, ftp):
     username = client_request.split(" ")[1]
     return ftp.user_cmd(username)
@@ -641,9 +611,13 @@ def do_pass(cmd_rec, client_request, ftp):
 
 def do_stor(cmd_rec, client_request, ftp):
     """Prompt for what to upload, then call the appropriate FTP command."""
-    # Active (PORT), Passive (PASV), ExtActive (EPRT), or ExtPassive (EPSV)?
-    output, sock, transfer_type = get_transfer_output_and_socket(ftp)
-    print_debug(output + "\n")
+    split_req = client_request.split(" ")
+    if len(split_req) > 1:
+        # Path specified
+        resp = ftp.stor_cmd(split_req[1])
+    else:
+        resp = ftp.stor_cmd()
+    return resp
 
     # What file to upload?
     local_file = raw_input("What local file do you want to upload?\n> ")
