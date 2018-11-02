@@ -201,7 +201,7 @@ class FTP:
             msg_rec += buff
             if len(buff) == 0:
                 break
-        self.logger.log("Received: %s" % msg_rec)
+        self.logger.log("Received from %s:%s: %r" % (self.client_ip, self.client_port, repr(msg_rec)))
         return msg_rec
 
     def send_to_data_channel(self, sock, data):
@@ -209,8 +209,8 @@ class FTP:
         resp = sock.send(data)
         print_debug(resp)
         print_debug(data)
-        self.logger.log("Sent: %s" % data)
-        self.logger.log("Received: %s" % resp)
+        self.logger.log("Sent to %s:%s: %r" % (self.client_ip, self.client_port, repr(data)))
+        self.logger.log("Received from %s:%s: %r" % (self.client_ip, self.client_port, repr(resp)))
         return resp
 
     def port_connection(self, sock, port_ip, port_port):
@@ -498,8 +498,8 @@ class FTP:
             data = subprocess.check_output(['ls', '-l']).replace("\n", "\r\n")
         init_data = FTP_STATUS_CODES["INBOUND_DATA"] + "\r\n"
         init_resp = self.s.send(init_data)
-        self.logger.log("Sent: %s" % init_data)
-        self.logger.log("Received: %s" % init_resp)
+        self.logger.log("Sent to %s:%s: %r" % (self.client_ip, self.client_port, repr(init_data)))
+        self.logger.log("Received from %s:%s: %r" % (self.client_ip, self.client_port, repr(init_resp)))
         if self.is_port:
             #sock = new_socket()
             #self.port_connection(sock, self.client_port_ip, self.client_port)
