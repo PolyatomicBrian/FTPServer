@@ -63,7 +63,8 @@ FTP_STATUS_CODES = {
     "VALID_USERNAME":       "331",
     "INVALID_COMMAND":      "502",
     "INVALID_LOGIN":        "530",
-    "UNSUCCESSFUL_CWD":     "550"
+    "UNSUCCESSFUL_CWD":     "550",
+    "UNSUCCESSFUL_RETR":    "550"
 
 }
 
@@ -205,7 +206,7 @@ class FTP:
         return msg_rec
 
     def send_to_data_channel(self, sock, data):
-        """Sends data to server via data channel."""
+        """Sends data to client via data channel."""
         resp = sock.send(data)
         print_debug(resp)
         print_debug(data)
@@ -404,36 +405,30 @@ class FTP:
         resp = "%s (%s)" % (FTP_STATUS_CODES["SUCCESSFUL_PASV"], pasv_params)
         return resp + "\r\n"
 
-    def retr_cmd(self, sock, path, transfer_type):
+    def retr_cmd(self, path):
         """Send RETR command to server."""
         print_debug("Executing RETR")
-        command = "RETR %s\r\n" % path
-        msg_rec = self.send_and_log(self.s, command)
-        print_debug(msg_rec)
-        # Ensure we got a success message from the FTP server.
-        if get_ftp_server_code(msg_rec) == FTP_STATUS_CODES["SUCCESSFUL_RETR"]:
-            # Are we doing PORT or EPRT?
-            if transfer_type == "1" or transfer_type == "3":
-                # Have client accept data from server.
-                conn, sockaddr = sock.accept()
-                # Have client get data from server.
-                data_rec = self.get_from_data_channel(conn)
-                self.close_socket(conn)
-            # Are we doing PASV or EPSV?
-            else:
-                # Have client get data from server.
-                data_rec = self.get_from_data_channel(sock)
-                self.close_socket(sock)
-            # Get Transfer success / failed message.
-            msg_cmd_rec = self.s.recv(BUFF_SIZE)
-            print_debug("Transfer Status: " + str(msg_cmd_rec))
-            if get_ftp_server_code(msg_cmd_rec) == FTP_STATUS_CODES["SUCCESSFUL_TRANSFER"]:
-                print("Download successful.\n")
-            else:
-                print("Something went wrong when downloading. Try again.")
-            return msg_rec, data_rec
+        if not path or not os.path.exists(path):
+            return FTP_STATUS_CODES["INVALID_COMMAND"] + "\r\n"
+        # Inform client on Command Channel that data is coming on Data Channel.
+        init_data = FTP_STATUS_CODES["INBOUND_DATA"] + "\r\n"
+        init_resp = self.s.send(init_data)
+        self.logger.log("Sent to %s:%s: %r" % (self.client_ip, self.client_port, repr(init_data)))
+        self.logger.log("Received from %s:%s: %r" % (self.client_ip, self.client_port, repr(init_resp)))
+        with open(path, "rb") as f:
+            data = f.read()
+        # Are we doing PORT or EPRT?
+        if self.is_port:
+            data_sent = self.send_to_data_channel(self.data_sock, data)
+            self.close_socket(self.data_sock)
+        # Are we doing PASV or EPSV?
         else:
-            return "File not found or inaccessible.", None
+            conn, sockaddr = self.data_sock.accept()
+            # Have server send data across data channel for client.
+            self.send_to_data_channel(conn, data)
+            self.close_socket(conn)
+        resp = FTP_STATUS_CODES["SUCCESSFUL_TRANSFER"]
+        return resp + "\r\n"
 
     def stor_cmd(self, sock, local_file, remote_path, transfer_type):
         """Send STOR command to server."""
@@ -501,8 +496,6 @@ class FTP:
         self.logger.log("Sent to %s:%s: %r" % (self.client_ip, self.client_port, repr(init_data)))
         self.logger.log("Received from %s:%s: %r" % (self.client_ip, self.client_port, repr(init_resp)))
         if self.is_port:
-            #sock = new_socket()
-            #self.port_connection(sock, self.client_port_ip, self.client_port)
             data_sent = self.send_to_data_channel(self.data_sock, data)
             self.close_socket(self.data_sock)
         else:
@@ -599,29 +592,15 @@ def do_epsv(cmd_rec, client_request, ftp):
     return ftp.epsv_cmd()
 
 
-def do_download(cmd_rec, client_request, ftp):
+def do_retr(cmd_rec, client_request, ftp):
     """Prompt for what to download, then call the appropriate FTP command."""
-    # Active (PORT), Passive (PASV), ExtActive (EPRT), or ExtPassive (EPSV)?
-    output, sock, transfer_type = get_transfer_output_and_socket(ftp)
-    print_debug(output + "\n")
-
-    # What file to download?
-    path = raw_input("What file do you want to download?\n> ")
-    while not path:
-        path = raw_input("What file do you want to download?\n> ")
-    try:
-        msg_rec, data_rec = ftp.retr_cmd(sock, path, transfer_type)
-        print_debug(str(msg_rec))
-    except Exception as e:
-        print("An error has occurred: " + str(e) + "\nPlease try again.")
-
-    # Download file.
-    if data_rec:
-        print_debug(str(data_rec))
-        try:
-            write_to_local(path, data_rec)
-        except Exception as e:
-            print("An error has occurred: " + str(e) + "\nPlease try again.")
+    split_req = client_request.split(" ")
+    if len(split_req) > 1:
+        # Path specified
+        resp = ftp.retr_cmd(split_req[1])
+    else:
+        resp = ftp.retr_cmd()
+    return resp
 
 
 def write_to_local(path, data_rec):
@@ -660,7 +639,7 @@ def do_pass(cmd_rec, client_request, ftp):
     return ftp.pass_cmd(password)
 
 
-def do_upload(cmd_rec, client_request, ftp):
+def do_stor(cmd_rec, client_request, ftp):
     """Prompt for what to upload, then call the appropriate FTP command."""
     # Active (PORT), Passive (PASV), ExtActive (EPRT), or ExtPassive (EPSV)?
     output, sock, transfer_type = get_transfer_output_and_socket(ftp)
