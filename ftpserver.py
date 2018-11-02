@@ -266,12 +266,14 @@ class FTP:
             return "", "", ""
         return pasv_params, host_ip, host_port
 
-    def parse_epsv_resp(self, msg_rec):
-        """Helper for epsv_cmd() to parse Port of data channel."""
+    def parse_eprt_req(self, msg_rec):
+        """Helper for eprt_cmd() to parse Port of data channel."""
         port_start_ind = 3
         try:
             # Get host port with delimiter from server's response.
-            host_port_delim = msg_rec[msg_rec.index("(") + 1:msg_rec.rindex(")")]
+            host_port_delim = msg_rec
+            if "(" in host_port_delim:
+                host_port_delim = msg_rec[msg_rec.index("(") + 1:msg_rec.rindex(")")]
             # Split based on delimiter.
             host_port_delim_split = host_port_delim.split(E_DELIMITER)
             # Get port from split list.
@@ -281,8 +283,8 @@ class FTP:
             return ""
         return host_port
 
-    def parse_eprt_req(self, sock, proto):
-        """Helper for eprt_cmd() to parse in IP and Port of data channel."""
+    def parse_epsv_resp(self, sock, proto="1"):
+        """Helper for epsv_cmd() to parse in IP and Port of data channel."""
         try:
             net_prt = proto
             net_addr = self.s.getsockname()[0]  # Get local addr of client.
@@ -353,7 +355,7 @@ class FTP:
     def port_cmd(self, msg):
         """Send PORT command to server."""
         print_debug("Executing PORT")
-        # PORT has server listen for a new connection.
+        # PORT has client listen for server's connection.
         self.is_port = True
         self.data_sock = new_socket()
         client_port_ip, client_port_port = self.parse_port_resp(msg)
@@ -364,7 +366,7 @@ class FTP:
     def pasv_cmd(self):
         """Send PASV command to server."""
         print_debug("Executing PASV")
-        # PASV has server listen for client connection.
+        # PASV has server listen for client's connection.
         self.is_port = False
         self.data_sock = new_socket()
         self.pasv_connection(self.data_sock)
@@ -378,28 +380,29 @@ class FTP:
         """Send EPRT command to server."""
         print_debug("Executing EPRT")
         # EPRT creates a new connection from client to server.
-        sock = new_socket()
-        # Get client port from Command Channel socket.
-        eprt_port = self.parse_eprt_resp(msg)
+        self.is_port = True
+        self.data_sock = new_socket()
         # Get client ip from Command Channel socket.
-        eprt_ip = self.s.getpeername()[0]
-        # Create passive connection using acquired ip and port.
-        return self.port_cmd(sock, epsv_ip, epsv_port)
+        client_port_ip = self.s.getpeername()[0]
+        # Get client port from Command Channel socket.
+        client_port_port = self.parse_eprt_req(msg)
+        # Create connection using acquired ip and port.
+        self.port_connection(self.data_sock, client_port_ip, client_port_port)
+        resp = "%s" % FTP_STATUS_CODES["SUCCESSFUL_PORT"]
+        return resp + "\r\n"
 
     def epsv_cmd(self):
         """Send EPSV command to server."""
         print_debug("Executing EPSV")
         sock = new_socket()
-        # Create port connection using extended info.
-        self.port_connection(sock)
-        net_prt = proto
-        # Get required parameters for EPRT command.
-        eprt_params, net_addr, tcp_port = self.parse_eprt_req(sock, net_prt)
-        print_debug("PARAMS: " + eprt_params)
-        command = "EPRT %s\r\n" % eprt_params
-        msg_rec = self.send_and_log(self.s, command)
-        print_debug(msg_rec)
-        return msg_rec, sock
+        self.is_port = False
+        self.data_sock = new_socket()
+        self.pasv_connection(self.data_sock)
+        # Get required parameters for EPSV command.
+        pasv_params, host_ip, host_port = self.parse_epsv_resp(self.data_sock)
+        print_debug("PARAMS: " + pasv_params)
+        resp = "%s (%s)" % (FTP_STATUS_CODES["SUCCESSFUL_PASV"], pasv_params)
+        return resp + "\r\n"
 
     def retr_cmd(self, sock, path, transfer_type):
         """Send RETR command to server."""
