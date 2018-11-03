@@ -856,4 +856,11 @@ def main():
 
 ''' PROCESS '''
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("Stopping server...")
+        try:
+            sys.exit(0)
+        except SystemExit:
+            os._exit(0)
