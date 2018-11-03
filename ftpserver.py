@@ -2,7 +2,7 @@
 
 """ftpserver.py: Acts as a server for connecting to an FTP client. Adheres to
                  the FTP Protocol defined in RFC 959 and RFC 2428.
-   Author: Brian Jopling, October 2018."""
+   Author: Brian Jopling, November 2018."""
 
 import socket      # Used for network connections.
 import sys         # Used for arg parsing.
@@ -14,7 +14,7 @@ import subprocess  # Used for performing `ls -l`
 
 ''' GLOBALS '''
 
-IS_DEBUG = True
+IS_DEBUG = False
 DEFAULT_FTP_PORT = 2121
 SERVER_INFO = "UNIX Type: L8"
 
@@ -78,6 +78,21 @@ PROGRAM_ARG_NUM = 0  # ie sys.argv[0]
 LOG_ARG_NUM = 1
 PORT_ARG_NUM = 2
 
+STARTUP_BANNER = """
+  ____       _             _      
+ |  _ \     (_)           ( )     
+ | |_) |_ __ _  __ _ _ __ |/ ___  
+ |  _ <| '__| |/ _` | '_ \  / __| 
+ | |_) | |  | | (_| | | | | \__ \ 
+ |____/|_|  |_|\__,_|_| |_| |___/ 
+  / ____|                         
+ | (___   ___ _ ____   _____ _ __ 
+  \___ \ / _ \ '__\ \ / / _ \ '__|
+  ____) |  __/ |   \ V /  __/ |   
+ |_____/ \___|_|    \_/ \___|_|                                   
+"""
+
+
 
 ''' CLASSES '''
 
@@ -109,7 +124,15 @@ class Logger:
 
 
 class ClientConnectedThread(threading.Thread):
+    """New thread for every connected client. Each thread
+       handles an individual client's requests."""
+    # Class vars:
+    #   * client_ip - String
+    #   * client_port - String
+    #   * client_sock - Socket
+    #   * logger - Logger
     def __init__(self, ip, port, sock, logger):
+        """Initialize args to class variables."""
         threading.Thread.__init__(self)
         self.client_ip = ip
         self.client_port = port
@@ -117,6 +140,7 @@ class ClientConnectedThread(threading.Thread):
         self.logger = logger
 
     def run(self):
+        """Driver for individual thread. Handles client requests."""
         # Initialize an FTP object for each connected client.
         ftp = FTP(self.client_ip, self.client_port, self.client_sock, self.logger)
         # Log that a host connected.
@@ -124,19 +148,23 @@ class ClientConnectedThread(threading.Thread):
         # Send a greeting to that host and get their next request.
         serv_command = "200 Hello friend.\r\n"
         while True:
-            client_request = ftp.send_and_log(self.client_sock, serv_command)
-            cmd_rec = parse_client_request(client_request)
-            # If request received is invalid, send invalid status code to client.
-            if cmd_rec not in VALID_COMMANDS:
-                print_debug("Received an invalid command: " + cmd_rec)
-                self.client_sock.send(FTP_STATUS_CODES["INVALID_COMMAND"] +
-                                      " Invalid command, try again.\r\n")
-            # Otherwise, handle the request.
-            else:
-                serv_command = self.handle_command(cmd_rec, client_request, ftp)
+            try:
+                client_request = ftp.send_and_log(self.client_sock, serv_command)
+                cmd_rec = parse_client_request(client_request)
+                # If request received is invalid, send invalid status code to client.
+                if cmd_rec not in VALID_COMMANDS:
+                    print_debug("Received an invalid command: " + cmd_rec)
+                    self.client_sock.send(FTP_STATUS_CODES["INVALID_COMMAND"] +
+                                          " Invalid command, try again.\r\n")
+                # Otherwise, handle the request.
+                else:
+                    serv_command = self.handle_command(cmd_rec, client_request, ftp)
+            except Exception as e:
+                print_debug("Encountered error: " + str(e))
 
 
     def handle_command(self, cmd_rec, client_request, ftp):
+        """Server performs an action corresponding to the received command."""
         client_request = client_request.strip('\r\n')
         function_to_call = VALID_COMMANDS[cmd_rec][1]
         return globals()[function_to_call](cmd_rec, client_request, ftp)
@@ -164,39 +192,39 @@ class FTP:
             # Get IP address.
             ip = socket.gethostbyname(host)
         except socket.error:
-            error_quit("Invalid or unknown host address!", 400)
+            print_debug("Invalid or unknown host address!", 400)
         except Exception:
-            error_quit("Invalid or unknown host address!", 400)
+            print_debug("Invalid or unknown host address!", 400)
         try:
             # Connect socket to IP and Port.
             print_debug("PORT: " + str(port))
             port = int(port)
             sock.connect((ip, port))
         except socket.error:
-            error_quit("Connection refused, did you specify the correct host and port?", 400)
+            print_debug("Connection refused, did you specify the correct host and port?", 400)
         except Exception:
-            error_quit("Terminating session due to issue in transmission.", 400)
+            print_debug("Terminating session due to issue in transmission.", 400)
 
     def send_and_log(self, sock, command):
-        """Send command to socket, return server's
-           response from command channel."""
+        """Send response to socket, return client's
+           request from command channel."""
         try:
-            # Send command to server.
+            # Send command to client.
             sock.send(command)
             self.logger.log("Sent to %s:%s: %r" % (self.client_ip, self.client_port, repr(command)))
-            # Receive response from server.
+            # Receive response from client.
             msg_rec = sock.recv(BUFF_SIZE)
             self.logger.log("Received from %s:%s: %r" % (self.client_ip, self.client_port, repr(msg_rec)))
         except socket.error:
-            error_quit("Connection error, unable to send command.", 400)
+            print_debug("Connection error, unable to send command.", 400)
         except Exception:
-            error_quit("An unknown error has occurred.", 500)
+            print_debug("An unknown error has occurred.", 500)
         return msg_rec
 
     def get_from_data_channel(self, sock):
-        """Return server's response from data channel."""
+        """Return client's response from data channel."""
         msg_rec = b""
-        # Continue reading from server until there's nothing left to read.
+        # Continue reading from client until there's nothing left to read.
         while 1:
             buff = sock.recv(BUFF_SIZE)
             msg_rec += buff
@@ -251,7 +279,7 @@ class FTP:
     def parse_pasv_req(self, sock):
         """Helper for pasv_cmd() to parse in IP and Port of data channel."""
         try:
-            host_ip = self.s.getsockname()[0]  # Get local IPv4 addr of client.
+            host_ip = self.s.getsockname()[0]  # Get local IPv4 addr of server.
             host_port = sock.getsockname()[1]  # Get opened port of socket.
             # PORT requires parameters split up as:
             # octet1,octet2,octet3,octet4,p1,p2
@@ -271,7 +299,7 @@ class FTP:
         """Helper for eprt_cmd() to parse Port of data channel."""
         port_start_ind = 3
         try:
-            # Get host port with delimiter from server's response.
+            # Get host port with delimiter.
             host_port_delim = msg_rec
             if "(" in host_port_delim:
                 host_port_delim = msg_rec[msg_rec.index("(") + 1:msg_rec.rindex(")")]
@@ -288,7 +316,7 @@ class FTP:
         """Helper for epsv_cmd() to parse in IP and Port of data channel."""
         try:
             net_prt = proto
-            net_addr = self.s.getsockname()[0]  # Get local addr of client.
+            net_addr = self.s.getsockname()[0]  # Get local addr of server.
             tcp_port = sock.getsockname()[1]  # Get opened port of socket.
             # EPRT requires parameters split up as:
             # <d><net-prt><d><net-addr><d><tcp-port><d>
@@ -301,29 +329,36 @@ class FTP:
         return eprt_params, net_addr, tcp_port
 
     def user_cmd(self, username):
-        """Send USER command to server."""
+        """Handle client's request for USER."""
         print_debug("Executing USER")
+        # Ensure user exists.
         if username in ACCOUNTS_INFO:
             print_debug("User %s exists" % username)
             self.user = username
+            # Send an OK
             resp = FTP_STATUS_CODES["VALID_USERNAME"]
         else:
             print_debug("User %s does NOT exist" % username)
+            # User does not exist, send a fail.
             resp = FTP_STATUS_CODES["INVALID_LOGIN"]
         return resp + "\r\n"
 
     def pass_cmd(self, password):
-        """Send PASS command to server."""
+        """Handle client's request for PASS."""
         print_debug("Executing PASS")
+        # Ensure USER was entered and valid password corresponds to that user.
         if self.user and password in ACCOUNTS_INFO[self.user]:
+            # Send OK
             resp = FTP_STATUS_CODES["SUCCESSFUL_LOGIN"]
         else:
+            # Send fail.
             resp = FTP_STATUS_CODES["INVALID_LOGIN"]
         return resp + "\r\n"
 
     def cwd_cmd(self, new_dir):
-        """Send CWD command to server."""
+        """Handle client's request for CWD."""
         print_debug("Executing CWD")
+        # Ensure directory exists.
         if os.path.exists(new_dir):
             os.chdir(new_dir)
             resp = "%s Changed to %s" % (FTP_STATUS_CODES["SUCCESSFUL_CWD"], os.getcwd())
@@ -332,14 +367,15 @@ class FTP:
         return resp + "\r\n"
 
     def pwd_cmd(self):
-        """Send PWD command to server."""
+        """Handle client's request for PWD."""
         print_debug("Executing PWD")
         resp = "%s %s" % (FTP_STATUS_CODES["SUCCESSFUL_PWD"], os.getcwd())
         return resp + "\r\n"
 
     def cdup_cmd(self):
-        """Send CDUP command to server."""
+        """Handle client's request for CDUP."""
         print_debug("Executing CDUP")
+        # Ensure '..' exists and (not so obviously) that we have permission.
         if os.path.exists('..'):
             os.chdir('..')
             resp = "%s Changed to %s" % (FTP_STATUS_CODES["SUCCESSFUL_CWD"], os.getcwd())
@@ -348,13 +384,13 @@ class FTP:
         return resp + "\r\n"
 
     def quit_cmd(self):
-        """Send QUIT command to server."""
+        """Handle client's request for QUIT."""
         print_debug("Executing QUIT")
         resp = FTP_STATUS_CODES["ACCEPT_QUIT"]
         return resp + "\r\n"
 
     def port_cmd(self, msg):
-        """Send PORT command to server."""
+        """Handle client's request for PORT."""
         print_debug("Executing PORT")
         # PORT has client listen for server's connection.
         self.is_port = True
@@ -365,7 +401,7 @@ class FTP:
         return resp + "\r\n"
 
     def pasv_cmd(self):
-        """Send PASV command to server."""
+        """Handle client's request for PASV."""
         print_debug("Executing PASV")
         # PASV has server listen for client's connection.
         self.is_port = False
@@ -378,9 +414,9 @@ class FTP:
         return resp + "\r\n"
 
     def eprt_cmd(self, msg):
-        """Send EPRT command to server."""
+        """Handle client's request for EPRT."""
         print_debug("Executing EPRT")
-        # EPRT creates a new connection from client to server.
+        # EPRT creates a new connection between client and server.
         self.is_port = True
         self.data_sock = new_socket()
         # Get client ip from Command Channel socket.
@@ -393,7 +429,7 @@ class FTP:
         return resp + "\r\n"
 
     def epsv_cmd(self):
-        """Send EPSV command to server."""
+        """Handle client's request for EPSV."""
         print_debug("Executing EPSV")
         sock = new_socket()
         self.is_port = False
@@ -406,7 +442,7 @@ class FTP:
         return resp + "\r\n"
 
     def retr_cmd(self, path):
-        """Send RETR command to server."""
+        """Handle client's request for RETR."""
         print_debug("Executing RETR")
         if not path or not os.path.exists(path):
             return FTP_STATUS_CODES["INVALID_COMMAND"] + "\r\n"
@@ -431,7 +467,7 @@ class FTP:
         return resp + "\r\n"
 
     def stor_cmd(self, path):
-        """Send STOR command to server."""
+        """Handle client's request for STOR."""
         print_debug("Executing STOR")
         # Inform client on Command Channel that data is coming on Data Channel.
         init_data = FTP_STATUS_CODES["INBOUND_DATA"] + "\r\n"
@@ -453,13 +489,13 @@ class FTP:
         return resp + "\r\n"
 
     def syst_cmd(self):
-        """Send SYST command to server."""
+        """Handle client's request for SYST."""
         print_debug("Executing SYST")
         resp = "%s %s" % (FTP_STATUS_CODES["SUCCESSFUL_SYST"], SERVER_INFO)
         return resp + "\r\n"
 
     def help_cmd(self, cmd=None):
-        """Send HELP command to server."""
+        """Handle client's request for HELP."""
         print_debug("Executing HELP")
         help_msg = "FTP Server Help: \n"
         if cmd and cmd.upper() in VALID_COMMANDS:
@@ -471,7 +507,7 @@ class FTP:
         return resp + "\r\n"
 
     def list_cmd(self, path=None):
-        """Send LIST command to server."""
+        """Handle client's request for LIST."""
         print_debug("Executing LIST")
         if path:
             # List everything in specified path.
@@ -499,13 +535,13 @@ class FTP:
         print_debug("Closing socket.")
         try:
             sock.close()
-            # If data socket being closed, print status message.
+            # If data socket being closed, print debug message.
             if sock != self.s:
                 print_debug("Socket closed.")
         except socket.error:
-            error_quit("Error closing socket!", 500)
+            print_debug("Error closing socket!", 500)
         except Exception:
-            error_quit("An unknown error occurred while closing the socket!", 500)
+            print_debug("An unknown error occurred while closing the socket!", 500)
 
 
 ''' FUNCTIONS '''
@@ -561,33 +597,61 @@ def new_socket():
 
 
 def do_port(cmd_rec, client_request, ftp):
+    """Try to handle PORT request."""
     # IP and Port corresponding to client's accepting data channel.
     msg = client_request.split(" ")[1]
     print_debug(client_request)
-    return ftp.port_cmd(msg)
+    try:
+        resp = ftp.port_cmd(msg)
+    except Exception as e:
+        resp = FTP_STATUS_CODES["INVALID_COMMAND"] + "\r\n"
+        print("Encountered error: " + str(e))
+    return resp
 
 
 def do_pasv(cmd_rec, client_request, ftp):
-    return ftp.pasv_cmd()
+    """Try to handle PASV request."""
+    try:
+        resp = ftp.pasv_cmd()
+    except Exception as e:
+        resp = FTP_STATUS_CODES["INVALID_COMMAND"] + "\r\n"
+        print("Encountered error: " + str(e))
+    return resp
 
 
 def do_eprt(cmd_rec, client_request, ftp):
+    """Try to handle EPRT request."""
     # IP and Port corresponding to client's accepting data channel.
-    return ftp.eprt_cmd(client_request)
+    try:
+        resp = ftp.eprt_cmd(client_request)
+    except Exception as e:
+        resp = FTP_STATUS_CODES["INVALID_COMMAND"] + "\r\n"
+        print("Encountered error: " + str(e))
+    return resp
 
 
 def do_epsv(cmd_rec, client_request, ftp):
-    return ftp.epsv_cmd()
+    """Try to handle EPSV request."""
+    try:
+        resp = ftp.epsv_cmd()
+    except Exception as e:
+        resp = FTP_STATUS_CODES["INVALID_COMMAND"] + "\r\n"
+        print("Encountered error: " + str(e))
+    return resp
 
 
 def do_retr(cmd_rec, client_request, ftp):
-    """Prompt for what to download, then call the appropriate FTP command."""
+    """Try to handle RETR request."""
     split_req = client_request.split(" ")
-    if len(split_req) > 1:
-        # Path specified
-        resp = ftp.retr_cmd(split_req[1])
-    else:
-        resp = ftp.retr_cmd()
+    try:
+        if len(split_req) > 1:
+            # Path specified
+            resp = ftp.retr_cmd(split_req[1])
+        else:
+            resp = ftp.retr_cmd()
+    except Exception as e:
+        resp = FTP_STATUS_CODES["INVALID_COMMAND"] + "\r\n"
+        print("Encountered error: " + str(e))
     return resp
 
 
@@ -600,103 +664,120 @@ def write_to_local(path, data_rec):
 
 
 def do_user(cmd_rec, client_request, ftp):
+    "Handle inputted USER."
     username = client_request.split(" ")[1]
-    return ftp.user_cmd(username)
+    try:
+        resp = ftp.user_cmd(username)
+    except Exception as e:
+        resp = FTP_STATUS_CODES["INVALID_COMMAND"] + "\r\n"
+        print("Encountered error: " + str(e))
+    return resp
 
 
 def do_pass(cmd_rec, client_request, ftp):
+    """Handle inputted PASS."""
     password = client_request.split(" ")[1]
-    return ftp.pass_cmd(password)
+    try:
+        resp = ftp.pass_cmd(password)
+    except Exception as e:
+        resp = FTP_STATUS_CODES["INVALID_COMMAND"] + "\r\n"
+        print("Encountered error: " + str(e))
+    return resp
 
 
 def do_stor(cmd_rec, client_request, ftp):
-    """Prompt for what to upload, then call the appropriate FTP command."""
+    """Write client's file to server."""
     split_req = client_request.split(" ")
-    if len(split_req) > 1:
-        # Path specified
-        resp = ftp.stor_cmd(split_req[1])
-    else:
-        resp = ftp.stor_cmd()
-    return resp
-
-    # What file to upload?
-    local_file = raw_input("What local file do you want to upload?\n> ")
-    is_file = os.path.isfile(local_file)
-    while not local_file or not is_file:
-        if not is_file:
-            print("File not found.")
-        local_file = raw_input("What local file do you want to upload?\n> ")
-        is_file = os.path.isfile(local_file)
-    # What to save file as?
-    remote_path = raw_input("What do you want to name the remote file?\n> ")
-    while not remote_path:
-        remote_path = raw_input("What do you want to name the remote file?\n> ")
     try:
-        msg_rec, data_rec = ftp.stor_cmd(sock, local_file, remote_path, transfer_type)
-        print_debug(str(data_rec))
+        if len(split_req) > 1:
+            # Path specified
+            resp = ftp.stor_cmd(split_req[1])
+        else:
+            resp = ftp.stor_cmd()
     except Exception as e:
-        print("An error has occurred: " + str(e) + "\nPlease try again.")
+        resp = FTP_STATUS_CODES["INVALID_COMMAND"] + "\r\n"
+        print("Encountered error: " + str(e))
+    return resp
 
 
 def do_list(cmd_rec, client_request, ftp):
-    """Prompt for what to list, then call the appropriate FTP command."""
+    """Break up client's request, which may contain a path, and perform list function."""
     split_req = client_request.split(" ")
-    if len(split_req) > 1:
-        # Path specified
-        resp = ftp.list_cmd(split_req[1])
-    else:
-        resp = ftp.list_cmd()
+    try:
+        if len(split_req) > 1:
+            # Path specified
+            resp = ftp.list_cmd(split_req[1])
+        else:
+            resp = ftp.list_cmd()
+    except Exception as e:
+        resp = FTP_STATUS_CODES["INVALID_COMMAND"] + "\r\n"
+        print("Encountered error: " + str(e))
     return resp
 
 
 def do_cwd(cmd_rec, client_request, ftp):
-    """Prompt for what dir to change to; call the appropriate FTP command."""
+    """Break up client's request, which should contain a path, and perform cwd function."""
     path = client_request.split(" ")[1]
-    return ftp.cwd_cmd(path)
+    try:
+        resp = ftp.cwd_cmd(path)
+    except Exception as e:
+        resp = FTP_STATUS_CODES["INVALID_COMMAND"] + "\r\n"
+        print("Encountered error: " + str(e))
+    return resp
 
 
 def do_cdup(cmd_rec, client_request, ftp):
     """Go up a directory."""
-    return ftp.cdup_cmd()
+    try:
+        resp = ftp.cdup_cmd()
+    except Exception as e:
+        resp = FTP_STATUS_CODES["INVALID_COMMAND"] + "\r\n"
+        print("Encountered error: " + str(e))
+    return resp
 
 
 def do_pwd(cmd_rec, client_request, ftp):
-    """Call the appropriate FTP command to display the working directory."""
-    return ftp.pwd_cmd()
+    """Display the working directory."""
+    try:
+        resp = ftp.pwd_cmd()
+    except Exception as e:
+        resp = FTP_STATUS_CODES["INVALID_COMMAND"] + "\r\n"
+        print("Encountered error: " + str(e))
+    return resp
 
 
 def do_syst(cmd_rec, client_request, ftp):
-    """Call the appropriate FTP command to display server info."""
-    return ftp.syst_cmd()
+    """Display server info."""
+    try:
+        resp = ftp.syst_cmd()
+    except Exception as e:
+        resp = FTP_STATUS_CODES["INVALID_COMMAND"] + "\r\n"
+        print("Encountered error: " + str(e))
+    return resp
 
 
 def do_help(cmd_rec, client_request, ftp):
-    """Call the appropriate FTP command to display the server's help info."""
+    """Display the server's help info."""
     split_req = client_request.split(" ")
-    if len(split_req) > 1:
-        # Path specified
-        resp = ftp.help_cmd(split_req[1])
-    else:
-        resp = ftp.help_cmd()
+    try:
+        if len(split_req) > 1:
+            # Path specified
+            resp = ftp.help_cmd(split_req[1])
+        else:
+            resp = ftp.help_cmd()
+    except Exception as e:
+        resp = FTP_STATUS_CODES["INVALID_COMMAND"] + "\r\n"
+        print("Encountered error: " + str(e))
     return resp
 
 
 def do_quit(cmd_rec, client_request, ftp):
-    """Call the appropriate FTP command to disconnect from server."""
+    """Disconnect from client."""
     try:
         return ftp.quit_cmd()
     except Exception as e:
         print("An error has occurred: " + str(e))
-
-
-def parse_server_response(msg):
-    """Return server response without server tags and status codes."""
-    if msg.startswith("'"):
-        print_debug(msg[5:-5])
-        return msg[5:-5]
-    else:
-        print_debug(msg)
-        return msg
+        return FTP_STATUS_CODES["INVALID_COMMAND"] + "\r\n"
 
 
 def parse_client_request(client_request):
@@ -708,13 +789,21 @@ def parse_client_request(client_request):
 
 def load_accounts():
     """Appends the usernames and passwords in ACCOUNTS_FILE into a map."""
+    # Ensure file exists.
+    if not os.path.exists(ACCOUNTS_FILE):
+        error_quit("Missing accounts file. %s is invalid." % ACCOUNTS_FILE, 400)
     # Read each line of ACCOUNTS_FILE.
     with open(ACCOUNTS_FILE) as f:
         for line in f:
             line = line.strip('\n')
             print_debug(line)
             # Split each line into a tuple based on delimiter ":".
-            (username, password) = line.split(":")
+            try:
+                (username, password) = line.split(":")
+            except ValueError as e:
+                error_quit("%s is formatted improperly! " % ACCOUNTS_FILE +
+                           "Should be username:password with each pair on " +
+                           "a different line.", 400)
             ACCOUNTS_INFO[username] = password
 
 
@@ -727,14 +816,18 @@ def do_ftp(logger):
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.bind(('', DEFAULT_FTP_PORT))  # Bind to OS-assigned available & random port.
         s.listen(1)
+        print("Server running.")
         while 1:
-            conn, addr = s.accept()
-            ip = addr[0]
-            port = addr[1]
-            client = ClientConnectedThread(ip, port, conn, logger)
-            client.start()
+            try:
+                conn, addr = s.accept()
+                ip = addr[0]
+                port = addr[1]
+                client = ClientConnectedThread(ip, port, conn, logger)
+                client.start()
+            except Exception as e:
+                print("Encountered error: " + str(e))
     except socket.error as e:
-        error_quit("Unable to connect due to: %s" % e, 500)
+        print("Unable to connect due to " + str(e))
 
 
 ''' DEBUG '''
@@ -752,7 +845,8 @@ def print_debug(msg):
 def main():
     """Main driver that parses args, creates our Logger & FTP objects,
        and starts the do_ftp driver."""
-    print_debug("Starting...")
+    print(STARTUP_BANNER)
+    print("Starting server...")
     log_file, port = parse_args()
     logger = Logger(log_file)
     load_accounts()
