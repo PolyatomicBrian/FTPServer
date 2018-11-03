@@ -807,14 +807,14 @@ def load_accounts():
             ACCOUNTS_INFO[username] = password
 
 
-def do_ftp(logger):
+def do_ftp(logger, server_port):
     """Driver that creates a socket and handles connections."""
     # Initialize logger.
     logger.log("Starting server.")
     try:
         # Create socket, connect to host and port.
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.bind(('', DEFAULT_FTP_PORT))  # Bind to OS-assigned available & random port.
+        s.bind(('', server_port))  # Bind to OS-assigned available & random port.
         s.listen(1)
         print("Server running.")
         while 1:
@@ -851,7 +851,7 @@ def main():
     logger = Logger(log_file)
     load_accounts()
     print_debug(ACCOUNTS_INFO)
-    do_ftp(logger)
+    do_ftp(logger, port)
 
 
 ''' PROCESS '''
