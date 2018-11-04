@@ -173,10 +173,14 @@ class ClientConnectedThread(threading.Thread):
 class FTP:
     """Executes defined FTP Client commands and handles Server's responses."""
     # Class vars:
-    #   * client_ip   - string
-    #   * client_port - string
-    #   * client_sock - string
-    #   * logger      - Logger
+    #   * client_ip        - string
+    #   * client_port      - string
+    #   * s                - socket
+    #   * data_sock        - socket
+    #   * is_port          - boolean
+    #   * logger           - Logger
+    #   * user             - string
+    #   * is_authenticated - boolean
     def __init__(self, client_ip, client_port, client_sock, logger):
         self.client_ip = client_ip
         self.client_port = client_port
@@ -185,6 +189,7 @@ class FTP:
         self.is_port = False
         self.logger = logger
         self.user = ""
+        self.is_authenticated = False
 
     def ftp_connect(self, sock, host, port):
         """Connects Client to Server."""
@@ -348,6 +353,7 @@ class FTP:
         print_debug("Executing PASS")
         # Ensure USER was entered and valid password corresponds to that user.
         if self.user and password in ACCOUNTS_INFO[self.user]:
+            self.is_authenticated = True
             # Send OK
             resp = FTP_STATUS_CODES["SUCCESSFUL_LOGIN"]
         else:
@@ -357,6 +363,8 @@ class FTP:
 
     def cwd_cmd(self, new_dir):
         """Handle client's request for CWD."""
+        if not self.is_authenticated:
+            return FTP_STATUS_CODES["INVALID_LOGIN"] + "\r\n"
         print_debug("Executing CWD")
         # Ensure directory exists.
         if os.path.exists(new_dir):
@@ -368,12 +376,16 @@ class FTP:
 
     def pwd_cmd(self):
         """Handle client's request for PWD."""
+        if not self.is_authenticated:
+            return FTP_STATUS_CODES["INVALID_LOGIN"] + "\r\n"
         print_debug("Executing PWD")
         resp = "%s %s" % (FTP_STATUS_CODES["SUCCESSFUL_PWD"], os.getcwd())
         return resp + "\r\n"
 
     def cdup_cmd(self):
         """Handle client's request for CDUP."""
+        if not self.is_authenticated:
+            return FTP_STATUS_CODES["INVALID_LOGIN"] + "\r\n"
         print_debug("Executing CDUP")
         # Ensure '..' exists and (not so obviously) that we have permission.
         if os.path.exists('..'):
@@ -385,12 +397,16 @@ class FTP:
 
     def quit_cmd(self):
         """Handle client's request for QUIT."""
+        if not self.is_authenticated:
+            return FTP_STATUS_CODES["INVALID_LOGIN"] + "\r\n"
         print_debug("Executing QUIT")
         resp = FTP_STATUS_CODES["ACCEPT_QUIT"]
         return resp + "\r\n"
 
     def port_cmd(self, msg):
         """Handle client's request for PORT."""
+        if not self.is_authenticated:
+            return FTP_STATUS_CODES["INVALID_LOGIN"] + "\r\n"
         print_debug("Executing PORT")
         # PORT has client listen for server's connection.
         self.is_port = True
@@ -402,6 +418,8 @@ class FTP:
 
     def pasv_cmd(self):
         """Handle client's request for PASV."""
+        if not self.is_authenticated:
+            return FTP_STATUS_CODES["INVALID_LOGIN"] + "\r\n"
         print_debug("Executing PASV")
         # PASV has server listen for client's connection.
         self.is_port = False
@@ -415,6 +433,8 @@ class FTP:
 
     def eprt_cmd(self, msg):
         """Handle client's request for EPRT."""
+        if not self.is_authenticated:
+            return FTP_STATUS_CODES["INVALID_LOGIN"] + "\r\n"
         print_debug("Executing EPRT")
         # EPRT creates a new connection between client and server.
         self.is_port = True
@@ -430,6 +450,8 @@ class FTP:
 
     def epsv_cmd(self):
         """Handle client's request for EPSV."""
+        if not self.is_authenticated:
+            return FTP_STATUS_CODES["INVALID_LOGIN"] + "\r\n"
         print_debug("Executing EPSV")
         sock = new_socket()
         self.is_port = False
@@ -443,6 +465,8 @@ class FTP:
 
     def retr_cmd(self, path):
         """Handle client's request for RETR."""
+        if not self.is_authenticated:
+            return FTP_STATUS_CODES["INVALID_LOGIN"] + "\r\n"
         print_debug("Executing RETR")
         if not path or not os.path.exists(path):
             return FTP_STATUS_CODES["INVALID_COMMAND"] + "\r\n"
@@ -468,6 +492,8 @@ class FTP:
 
     def stor_cmd(self, path):
         """Handle client's request for STOR."""
+        if not self.is_authenticated:
+            return FTP_STATUS_CODES["INVALID_LOGIN"] + "\r\n"
         print_debug("Executing STOR")
         # Inform client on Command Channel that data is coming on Data Channel.
         init_data = FTP_STATUS_CODES["INBOUND_DATA"] + "\r\n"
@@ -490,12 +516,16 @@ class FTP:
 
     def syst_cmd(self):
         """Handle client's request for SYST."""
+        if not self.is_authenticated:
+            return FTP_STATUS_CODES["INVALID_LOGIN"] + "\r\n"
         print_debug("Executing SYST")
         resp = "%s %s" % (FTP_STATUS_CODES["SUCCESSFUL_SYST"], SERVER_INFO)
         return resp + "\r\n"
 
     def help_cmd(self, cmd=None):
         """Handle client's request for HELP."""
+        if not self.is_authenticated:
+            return FTP_STATUS_CODES["INVALID_LOGIN"] + "\r\n"
         print_debug("Executing HELP")
         help_msg = "FTP Server Help: \n"
         if cmd and cmd.upper() in VALID_COMMANDS:
@@ -508,6 +538,8 @@ class FTP:
 
     def list_cmd(self, path=None):
         """Handle client's request for LIST."""
+        if not self.is_authenticated:
+            return FTP_STATUS_CODES["INVALID_LOGIN"] + "\r\n"
         print_debug("Executing LIST")
         if path:
             # List everything in specified path.
