@@ -1,3 +1,5 @@
-brian:badpassword
+brian:correcthorsebatterystaple
 luke:f0rc3m@st3r
 han:iShotFirst
+leia:h3lpmeObiWan
+jarjar:secretSithLord
