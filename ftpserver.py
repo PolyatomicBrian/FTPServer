@@ -15,7 +15,6 @@ import subprocess  # Used for performing `ls -l`
 ''' GLOBALS '''
 
 IS_DEBUG = False
-DEFAULT_FTP_PORT = 2121
 SERVER_INFO = "UNIX Type: L8"
 
 BUFF_SIZE = 1024
@@ -71,7 +70,7 @@ FTP_STATUS_CODES = {
 E_DELIMITER = "|"  # Delimiter used for EPRT and EPSV
 
 # Program Arguments
-REQUIRED_NUM_ARGS = 2
+REQUIRED_NUM_ARGS = 3
 MAXIMUM_NUM_ARGS = 3
 
 PROGRAM_ARG_NUM = 0  # ie sys.argv[0]
@@ -600,8 +599,8 @@ def parse_args():
     """Gets and returns provided arguments."""
     if len(sys.argv) < REQUIRED_NUM_ARGS or len(sys.argv) > MAXIMUM_NUM_ARGS:
         error_quit("Incorrect number of arguments!", 400)
-    # Set port to DEFAULT if not specified as an arg. Otherwise, port = portarg.
-    port = sys.argv[PORT_ARG_NUM] if len(sys.argv) == MAXIMUM_NUM_ARGS else DEFAULT_FTP_PORT
+    # port = portarg.
+    port = sys.argv[PORT_ARG_NUM]
     port = validate_port(port)
     # Get logfile name from args.
     log_file = sys.argv[LOG_ARG_NUM]
